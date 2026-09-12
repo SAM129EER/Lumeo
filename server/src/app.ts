@@ -1,10 +1,9 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import prisma from "./config/prisma.js";
 
 import authRoutes from "./modules/auth/auth.routes.js";
-import { get } from "node:http";
+import { errorMiddleware } from "./middlewares/error.middleware.js";
 
 const app = express();
 
@@ -16,6 +15,7 @@ app.get("/", (req, res) => {
   res.json("api working");
 });
 
-app.use("/api/v1/auth", authRoutes);
+app.use("/api/auth", authRoutes);
 
+app.use(errorMiddleware);
 export default app;
