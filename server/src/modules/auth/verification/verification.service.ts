@@ -1,22 +1,16 @@
-import {
-  generateSecureToken,
-  hashToken,
-} from "../../../utils/token.js";
-
+import { AppError } from "../../../utils/app-error.js";
+import { generateSecureToken, hashToken } from "../../../utils/token.js";
+import { markUserEmailAsVerified } from "../auth.repository.js";
 import {
   createVerificationToken,
+  deleteVerificationToken,
+  findVerificationToken,
 } from "./verification.repository.js";
 
-export async function createEmailVerificationToken(
-  userId: string,
-) {
+export async function createEmailVerificationToken(userId: string) {
   const token = generateSecureToken();
-
   const tokenHash = hashToken(token);
-
-  const expiresAt = new Date(
-    Date.now() + 15 * 60 * 1000,
-  );
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
   await createVerificationToken({
     userId,
@@ -25,4 +19,31 @@ export async function createEmailVerificationToken(
   });
 
   return token;
+}
+
+export async function verifyEmailToken(rawToken: string) {
+  const tokenHash = hashToken(rawToken);
+  const record = await findVerificationToken(tokenHash);
+
+  if (!record) {
+    throw new AppError(
+      "Invalid or expired email verification token.",
+      400,
+      "INVALID_VERIFICATION_TOKEN"
+    );
+  }
+
+  if (record.expiresAt < new Date()) {
+    await deleteVerificationToken(tokenHash);
+    throw new AppError(
+      "Verification token has expired. Please request a new one.",
+      400,
+      "VERIFICATION_TOKEN_EXPIRED"
+    );
+  }
+
+  const updatedUser = await markUserEmailAsVerified(record.userId);
+  await deleteVerificationToken(tokenHash);
+
+  return updatedUser;
 }
