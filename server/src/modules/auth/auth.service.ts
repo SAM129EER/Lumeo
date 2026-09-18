@@ -17,8 +17,8 @@ export async function registerUser(input: RegisterInput) {
 
   if (existingUser) {
     throw new AppError(
-      "An account with this email already exists.",
       409,
+      "An account with this email already exists.",
       "EMAIL_ALREADY_EXISTS"
     );
   }

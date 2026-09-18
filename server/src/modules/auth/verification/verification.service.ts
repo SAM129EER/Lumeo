@@ -27,8 +27,8 @@ export async function verifyEmailToken(rawToken: string) {
 
   if (!record) {
     throw new AppError(
-      "Invalid or expired email verification token.",
       400,
+      "Invalid or expired email verification token.",
       "INVALID_VERIFICATION_TOKEN"
     );
   }
@@ -36,8 +36,8 @@ export async function verifyEmailToken(rawToken: string) {
   if (record.expiresAt < new Date()) {
     await deleteVerificationToken(tokenHash);
     throw new AppError(
-      "Verification token has expired. Please request a new one.",
       400,
+      "Verification token has expired. Please request a new one.",
       "VERIFICATION_TOKEN_EXPIRED"
     );
   }
