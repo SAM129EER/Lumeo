@@ -4,17 +4,11 @@ import helmet from "helmet";
 
 import authRoutes from "./modules/auth/auth.routes.js";
 import { errorMiddleware } from "./middlewares/error.middleware.js";
-import { env } from "./config/env.js";
 
 const app = express();
 
 app.use(helmet());
-app.use(
-  cors({
-    origin: env.FRONTEND_URL,
-    credentials: true,
-  })
-);
+app.use(cors());
 app.use(express.json());
 
 app.get("/", (_req, res) => {
