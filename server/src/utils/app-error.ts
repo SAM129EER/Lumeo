@@ -1,14 +1,24 @@
 export class AppError extends Error {
   public readonly statusCode: number;
   public readonly code: string;
+  public readonly isOperational: boolean;
+  public readonly details?: unknown;
 
-  constructor(statusCode: number, message: string, code: string) {
+  constructor(
+    statusCode: number,
+    message: string,
+    code: string = "INTERNAL_ERROR",
+    details?: unknown
+  ) {
     super(message);
 
     this.name = "AppError";
     this.statusCode = statusCode;
     this.code = code;
+    this.isOperational = true;
+    this.details = details;
 
     Object.setPrototypeOf(this, new.target.prototype);
+    Error.captureStackTrace(this, this.constructor);
   }
 }

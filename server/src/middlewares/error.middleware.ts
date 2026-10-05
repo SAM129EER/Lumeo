@@ -1,26 +1,23 @@
-import type {
-  ErrorRequestHandler,
-} from "express";
-
-import { AppError } from "../utils/app-error.js";
+import type { ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
+import { AppError } from "../utils/app-error.js";
 
 export const errorMiddleware: ErrorRequestHandler = (
   error,
   _req,
   res,
-  _next,
+  _next
 ) => {
   if (error instanceof ZodError) {
+    const fieldErrors = error.flatten().fieldErrors;
     res.status(400).json({
       success: false,
       error: {
         code: "VALIDATION_ERROR",
-        message: "Invalid request data.",
-        details: error.flatten().fieldErrors,
+        message: "Invalid request payload.",
+        details: fieldErrors,
       },
     });
-
     return;
   }
 
@@ -30,19 +27,20 @@ export const errorMiddleware: ErrorRequestHandler = (
       error: {
         code: error.code,
         message: error.message,
+        ...(error.details ? { details: error.details } : {}),
       },
     });
-
     return;
   }
 
-  console.error(error);
+  // Fallback for unhandled unexpected errors
+  console.error("[Unhandled Error]:", error);
 
   res.status(500).json({
     success: false,
     error: {
       code: "INTERNAL_SERVER_ERROR",
-      message: "An unexpected error occurred.",
+      message: "An unexpected error occurred on the server.",
     },
   });
 };
