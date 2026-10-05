@@ -19,7 +19,7 @@ app.get("/", (_req, res) => {
 
 app.use("/api/auth", authRoutes);
 
-// Catch-all for unhandled routes (404)
+
 app.use("*", (req, _res, next) => {
   next(new AppError(404, `Route ${req.originalUrl} not found`, "NOT_FOUND"));
 });
