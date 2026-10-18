@@ -5,6 +5,7 @@ import helmet from "helmet";
 import authRoutes from "./modules/auth/auth.routes.js";
 import { errorMiddleware } from "./middlewares/error.middleware.js";
 import { AppError } from "./utils/app-error.js";
+import { ApiResponse } from "./utils/api-response.js";
 
 const app = express();
 
@@ -14,11 +15,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.get("/", (_req, res) => {
-  res.json({ success: true, message: "Lumeo API is working" });
+  ApiResponse.success(res, "Lumeo API is working");
 });
 
 app.use("/api/auth", authRoutes);
-
 
 app.use("*", (req, _res, next) => {
   next(new AppError(404, `Route ${req.originalUrl} not found`, "NOT_FOUND"));

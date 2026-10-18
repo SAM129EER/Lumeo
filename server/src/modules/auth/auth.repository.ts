@@ -2,9 +2,7 @@ import prisma from "../../config/prisma.js";
 
 export async function findUserByEmail(email: string) {
   return prisma.user.findUnique({
-    where: {
-      email,
-    },
+    where: { email },
   });
 }
 
@@ -21,9 +19,7 @@ export async function createUser(data: {
       id: true,
       email: true,
       status: true,
-      emailVerifiedAt: true,
       createdAt: true,
-      updatedAt: true,
     },
   });
 }

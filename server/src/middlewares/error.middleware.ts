@@ -33,7 +33,7 @@ export const errorMiddleware: ErrorRequestHandler = (
     return;
   }
 
-  // Fallback for unhandled unexpected errors
+ 
   console.error("[Unhandled Error]:", error);
 
   res.status(500).json({

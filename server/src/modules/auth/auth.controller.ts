@@ -1,14 +1,13 @@
 import type { Request, Response } from "express";
-import { registerUser } from "./auth.service.js";
+import { loginUser, registerUser } from "./auth.service.js";
+import { ApiResponse } from "../../utils/api-response.js";
 
 export async function register(req: Request, res: Response): Promise<void> {
-  const user = await registerUser(req.body);
+  const result = await registerUser(req.body);
+  ApiResponse.created(res, "User registered successfully.", result);
+}
 
-  res.status(201).json({
-    success: true,
-    message: "User registered successfully.",
-    data: {
-      user,
-    },
-  });
+export async function login(req: Request, res: Response): Promise<void> {
+  const result = await loginUser(req.body);
+  ApiResponse.success(res, "Login successful.", result);
 }
