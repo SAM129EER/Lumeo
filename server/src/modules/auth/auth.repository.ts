@@ -1,97 +1,92 @@
 import prisma from "../../config/prisma.js";
+import type { SafeUser } from "./auth.types.js";
 
-// --- User Operations ---
-export async function findUserByEmail(email: string) {
-  return prisma.user.findUnique({
-    where: { email },
-  });
-}
+const SAFE_USER_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  emailVerified: true,
+  image: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
-export async function findUserById(id: string) {
-  return prisma.user.findUnique({
-    where: { id },
-  });
-}
+export const authRepository = {
+  
+  async findUserByEmail(email: string) {
+    return prisma.user.findUnique({
+      where: { email },
+    });
+  },
 
-export async function createUser(data: { email: string; passwordHash: string }) {
-  return prisma.user.create({
-    data: {
-      email: data.email,
-      passwordHash: data.passwordHash,
-    },
-    select: {
-      id: true,
-      email: true,
-      status: true,
-      createdAt: true,
-    },
-  });
-}
+  async findUserById(id: string): Promise<SafeUser | null> {
+    return prisma.user.findUnique({
+      where: { id },
+      select: SAFE_USER_SELECT,
+    });
+  },
 
-export async function markEmailAsVerified(userId: string) {
-  return prisma.user.update({
-    where: { id: userId },
-    data: { emailVerifiedAt: new Date() },
-  });
-}
+  async createUser(data: {
+    email: string;
+    passwordHash: string;
+    name?: string;
+  }): Promise<SafeUser> {
+    return prisma.user.create({
+      data: {
+        email: data.email,
+        passwordHash: data.passwordHash,
+        ...(data.name ? { name: data.name } : {}),
+      },
+      select: SAFE_USER_SELECT,
+    });
+  },
 
-export async function updateUserPassword(userId: string, passwordHash: string) {
-  return prisma.user.update({
-    where: { id: userId },
-    data: { passwordHash },
-  });
-}
+  async createRefreshToken(data: {
+    tokenHash: string;
+    userId: string;
+    expiresAt: Date;
+  }) {
+    return prisma.refreshToken.create({
+      data: {
+        token: data.tokenHash,
+        userId: data.userId,
+        expiresAt: data.expiresAt,
+      },
+    });
+  },
 
-// --- Email Verification Token Operations ---
-export async function createEmailVerificationToken(data: {
-  userId: string;
-  tokenHash: string;
-  expiresAt: Date;
-}) {
-  await prisma.emailVerificationToken.deleteMany({
-    where: { userId: data.userId },
-  });
+  async findRefreshToken(tokenHash: string) {
+    return prisma.refreshToken.findUnique({
+      where: { token: tokenHash },
+      include: {
+        user: {
+          select: SAFE_USER_SELECT,
+        },
+      },
+    });
+  },
 
-  return prisma.emailVerificationToken.create({
-    data,
-  });
-}
+  async revokeRefreshToken(tokenHash: string) {
+    return prisma.refreshToken.updateMany({
+      where: {
+        token: tokenHash,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
+  },
 
-export async function findEmailVerificationToken(tokenHash: string) {
-  return prisma.emailVerificationToken.findUnique({
-    where: { tokenHash },
-  });
-}
-
-export async function deleteEmailVerificationToken(id: string) {
-  return prisma.emailVerificationToken.delete({
-    where: { id },
-  });
-}
-
-// --- Password Reset Token Operations ---
-export async function createPasswordResetToken(data: {
-  userId: string;
-  tokenHash: string;
-  expiresAt: Date;
-}) {
-  await prisma.passwordResetToken.deleteMany({
-    where: { userId: data.userId },
-  });
-
-  return prisma.passwordResetToken.create({
-    data,
-  });
-}
-
-export async function findPasswordResetToken(tokenHash: string) {
-  return prisma.passwordResetToken.findUnique({
-    where: { tokenHash },
-  });
-}
-
-export async function deletePasswordResetToken(id: string) {
-  return prisma.passwordResetToken.delete({
-    where: { id },
-  });
-}
+  async revokeAllUserRefreshTokens(userId: string) {
+    return prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
+  },
+};

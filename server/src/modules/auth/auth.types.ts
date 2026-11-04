@@ -1,6 +1,7 @@
 export interface RegisterInput {
   email: string;
   password: string;
+  name?: string;
 }
 
 export interface LoginInput {
@@ -8,19 +9,30 @@ export interface LoginInput {
   password: string;
 }
 
-export interface VerifyEmailInput {
-  token: string;
+export interface RefreshTokenInput {
+  refreshToken: string;
 }
 
-export interface ResendVerificationInput {
+export interface LogoutInput {
+  refreshToken: string;
+}
+
+export interface SafeUser {
+  id: string;
   email: string;
+  name: string | null;
+  image: string | null;
+  emailVerified: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-export interface ForgotPasswordInput {
-  email: string;
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
 }
 
-export interface ResetPasswordInput {
-  token: string;
-  password: string;
+export interface AuthResponse {
+  user: SafeUser;
+  tokens: AuthTokens;
 }

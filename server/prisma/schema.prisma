@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "./generated/prisma"
@@ -12,45 +7,71 @@ datasource db {
   provider = "postgresql"
 }
 
-enum UserStatus {
-  ACTIVE
-  SUSPENDED
-  DEACTIVATED
+enum TokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
 }
 
 model User {
-  id              String     @id @default(uuid())
-  email           String     @unique
-  passwordHash    String
-  status          UserStatus @default(ACTIVE)
-  emailVerifiedAt DateTime?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String?   // null = OAuth-only user
+  name          String?
+  emailVerified DateTime? // null = not verified
+  image         String?   // optional profile picture from OAuth
 
-  emailVerificationToken EmailVerificationToken[]
-  passwordResetToken     PasswordResetToken[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts           Account[]
+  refreshTokens      RefreshToken[]
+  verificationTokens VerificationToken[]
+
+  @@map("users")
 }
 
-model EmailVerificationToken {
-  id        String   @id @default(uuid())
-  userId    String
-  tokenHash String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+model Account {
+  id                String @id @default(cuid())
+  userId            String
+  provider          String // "google", "github", etc.
+  providerAccountId String // the unique ID from that provider
 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
   @@index([userId])
-  @@index([expiresAt])
+  @@map("accounts")
 }
 
-model PasswordResetToken {
-  id        String   @id @default(uuid())
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique // always store a HASH of the token
   userId    String
-  tokenHash String   @unique
   expiresAt DateTime
+  revokedAt DateTime? // null = still valid
+
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model VerificationToken {
+  id         String    @id @default(cuid())
+  identifier String    // the email
+  token      String    @unique // always store a HASH of the token
+  type       TokenType
+  expiresAt  DateTime
+  usedAt     DateTime? // null = not used yet
+
+  createdAt  DateTime  @default(now())
+
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([identifier, token])
+  @@index([identifier, type])
+  @@map("verification_tokens")
 }

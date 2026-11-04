@@ -1,177 +1,156 @@
+import { env } from "../../config/env.js";
 import { AppError } from "../../utils/app-error.js";
-import { generateToken } from "../../utils/jwt.js";
-import { hashPassword, verifyPassword } from "../../utils/password.js";
-import { generateSecureToken, hashToken } from "../../utils/token.js";
-import { sendPasswordResetEmail, sendVerificationEmail } from "../../utils/email.js";
 import {
-  createEmailVerificationToken,
-  createPasswordResetToken,
-  createUser,
-  deleteEmailVerificationToken,
-  deletePasswordResetToken,
-  findEmailVerificationToken,
-  findPasswordResetToken,
-  findUserByEmail,
-  markEmailAsVerified,
-  updateUserPassword,
-} from "./auth.repository.js";
+  hashPassword,
+  verifyPassword,
+  generateAccessToken,
+  verifyAccessToken,
+  generateSecureToken,
+  hashToken,
+} from "../../utils/security.js";
+import { authRepository } from "./auth.repository.js";
 import type {
-  ForgotPasswordInput,
+  AuthResponse,
+  AuthTokens,
   LoginInput,
   RegisterInput,
-  ResetPasswordInput,
-  VerifyEmailInput,
+  SafeUser,
 } from "./auth.types.js";
 
-export async function registerUser(input: RegisterInput) {
-  const email = input.email.trim().toLowerCase();
+export const authService = {
+  
+  async register(input: RegisterInput): Promise<AuthResponse> {
+    const email = input.email.trim().toLowerCase();
 
-  const existingUser = await findUserByEmail(email);
-  if (existingUser) {
-    throw new AppError(409, "An account with this email already exists.", "EMAIL_ALREADY_EXISTS");
-  }
+    const existingUser = await authRepository.findUserByEmail(email);
+    if (existingUser) {
+      throw new AppError(
+        409,
+        "An account with this email already exists.",
+        "EMAIL_ALREADY_EXISTS"
+      );
+    }
 
-  const passwordHash = await hashPassword(input.password);
+    const passwordHash = await hashPassword(input.password);
 
-  const user = await createUser({
-    email,
-    passwordHash,
-  });
+    const user = await authRepository.createUser({
+      email,
+      passwordHash,
+      ...(input.name ? { name: input.name.trim() } : {}),
+    });
 
-  // Generate and save email verification token (expires in 24 hours)
-  const rawToken = generateSecureToken();
-  const tokenHash = hashToken(rawToken);
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const tokens = await this.issueTokens(user.id, user.email);
 
-  await createEmailVerificationToken({
-    userId: user.id,
-    tokenHash,
-    expiresAt,
-  });
+    return { user, tokens };
+  },
 
-  // Send verification email asynchronously
-  sendVerificationEmail(user.email, rawToken).catch((err) => {
-    console.error(`Failed to send verification email to ${user.email}:`, err);
-  });
+  async login(input: LoginInput): Promise<AuthResponse> {
+    const email = input.email.trim().toLowerCase();
 
-  const token = generateToken(user.id);
+    const user = await authRepository.findUserByEmail(email);
+    if (!user || !user.passwordHash) {
+      throw new AppError(
+        401,
+        "Invalid email or password.",
+        "INVALID_CREDENTIALS"
+      );
+    }
 
-  return { user, token };
-}
+    const isPasswordValid = await verifyPassword(
+      input.password,
+      user.passwordHash
+    );
+    if (!isPasswordValid) {
+      throw new AppError(
+        401,
+        "Invalid email or password.",
+        "INVALID_CREDENTIALS"
+      );
+    }
 
-export async function loginUser(input: LoginInput) {
-  const email = input.email.trim().toLowerCase();
+    const tokens = await this.issueTokens(user.id, user.email);
 
-  const user = await findUserByEmail(email);
-  if (!user) {
-    throw new AppError(401, "Invalid email or password.", "INVALID_CREDENTIALS");
-  }
-
-  const isPasswordValid = await verifyPassword(input.password, user.passwordHash);
-  if (!isPasswordValid) {
-    throw new AppError(401, "Invalid email or password.", "INVALID_CREDENTIALS");
-  }
-
-  const token = generateToken(user.id);
-
-  return {
-    user: {
+    const safeUser: SafeUser = {
       id: user.id,
       email: user.email,
-      status: user.status,
-    },
-    token,
-  };
-}
+      name: user.name,
+      image: user.image,
+      emailVerified: user.emailVerified,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
 
-export async function verifyEmail(input: VerifyEmailInput) {
-  const tokenHash = hashToken(input.token);
+    return { user: safeUser, tokens };
+  },
 
-  const tokenRecord = await findEmailVerificationToken(tokenHash);
-  if (!tokenRecord) {
-    throw new AppError(400, "Invalid or expired verification token.", "INVALID_TOKEN");
-  }
+  async refresh(rawRefreshToken: string): Promise<AuthTokens> {
+    const tokenHash = hashToken(rawRefreshToken);
 
-  if (tokenRecord.expiresAt < new Date()) {
-    await deleteEmailVerificationToken(tokenRecord.id);
-    throw new AppError(400, "Verification token has expired. Please request a new one.", "TOKEN_EXPIRED");
-  }
+    const tokenRecord = await authRepository.findRefreshToken(tokenHash);
+    if (!tokenRecord) {
+      throw new AppError(
+        401,
+        "Invalid refresh token.",
+        "INVALID_REFRESH_TOKEN"
+      );
+    }
 
-  await markEmailAsVerified(tokenRecord.userId);
-  await deleteEmailVerificationToken(tokenRecord.id);
+    // Reuse detection: if a revoked token is presented, revoke all sessions for safety
+    if (tokenRecord.revokedAt) {
+      await authRepository.revokeAllUserRefreshTokens(tokenRecord.userId);
+      throw new AppError(
+        401,
+        "Revoked refresh token used. Please log in again.",
+        "REVOKED_REFRESH_TOKEN"
+      );
+    }
 
-  return { message: "Email verified successfully." };
-}
+    if (tokenRecord.expiresAt < new Date()) {
+      throw new AppError(
+        401,
+        "Refresh token has expired. Please log in again.",
+        "EXPIRED_REFRESH_TOKEN"
+      );
+    }
 
-export async function resendVerificationEmail(email: string) {
-  const normalizedEmail = email.trim().toLowerCase();
-  const user = await findUserByEmail(normalizedEmail);
+    // Rotate refresh token: revoke current and issue a new pair
+    await authRepository.revokeRefreshToken(tokenHash);
 
-  // Return generic message to prevent email enumeration
-  if (!user) {
-    return { message: "If an account with that email exists, a verification link has been sent." };
-  }
+    return this.issueTokens(tokenRecord.user.id, tokenRecord.user.email);
+  },
 
-  if (user.emailVerifiedAt) {
-    throw new AppError(400, "This email is already verified.", "ALREADY_VERIFIED");
-  }
+  async logout(rawRefreshToken: string): Promise<void> {
+    const tokenHash = hashToken(rawRefreshToken);
+    await authRepository.revokeRefreshToken(tokenHash);
+  },
 
-  const rawToken = generateSecureToken();
-  const tokenHash = hashToken(rawToken);
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  async getMe(userId: string): Promise<SafeUser> {
+    const user = await authRepository.findUserById(userId);
+    if (!user) {
+      throw new AppError(404, "User not found.", "USER_NOT_FOUND");
+    }
+    return user;
+  },
 
-  await createEmailVerificationToken({
-    userId: user.id,
-    tokenHash,
-    expiresAt,
-  });
+  async issueTokens(userId: string, email: string): Promise<AuthTokens> {
+    const accessToken = generateAccessToken({ userId, email });
 
-  await sendVerificationEmail(user.email, rawToken);
+    const rawRefreshToken = generateSecureToken(40);
+    const refreshTokenHash = hashToken(rawRefreshToken);
 
-  return { message: "Verification email sent successfully." };
-}
+    const expiresAt = new Date(
+      Date.now() + env.REFRESH_TOKEN_EXPIRES_DAYS * 24 * 60 * 60 * 1000
+    );
 
-export async function forgotPassword(input: ForgotPasswordInput) {
-  const email = input.email.trim().toLowerCase();
-  const user = await findUserByEmail(email);
+    await authRepository.createRefreshToken({
+      tokenHash: refreshTokenHash,
+      userId,
+      expiresAt,
+    });
 
-  // Return generic message if user not found to prevent email enumeration
-  if (!user) {
-    return { message: "If an account with that email exists, a password reset link has been sent." };
-  }
-
-  const rawToken = generateSecureToken();
-  const tokenHash = hashToken(rawToken);
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-
-  await createPasswordResetToken({
-    userId: user.id,
-    tokenHash,
-    expiresAt,
-  });
-
-  await sendPasswordResetEmail(user.email, rawToken);
-
-  return { message: "Password reset link sent to your email." };
-}
-
-export async function resetPassword(input: ResetPasswordInput) {
-  const tokenHash = hashToken(input.token);
-
-  const resetRecord = await findPasswordResetToken(tokenHash);
-  if (!resetRecord) {
-    throw new AppError(400, "Invalid or expired password reset token.", "INVALID_TOKEN");
-  }
-
-  if (resetRecord.expiresAt < new Date()) {
-    await deletePasswordResetToken(resetRecord.id);
-    throw new AppError(400, "Password reset token has expired. Please request a new one.", "TOKEN_EXPIRED");
-  }
-
-  const passwordHash = await hashPassword(input.password);
-
-  await updateUserPassword(resetRecord.userId, passwordHash);
-  await deletePasswordResetToken(resetRecord.id);
-
-  return { message: "Password has been reset successfully. You can now log in." };
-}
+    return {
+      accessToken,
+      refreshToken: rawRefreshToken,
+    };
+  },
+};
